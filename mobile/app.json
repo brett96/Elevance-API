@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "MedicareRetentionPOC",
+    "slug": "medicare-retention-poc",
+    "version": "0.0.1",
+    "scheme": "medicare-retention",
+    "platforms": ["ios", "android", "web"],
+    "plugins": ["expo-dev-client"],
+    "ios": {
+      "bundleIdentifier": "com.example.medicareRetentionPoc"
+    },
+    "android": {
+      "package": "com.example.medicareRetentionPoc"
+    }
+  }
+}
+
