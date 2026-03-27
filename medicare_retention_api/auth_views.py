@@ -158,22 +158,24 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
     code = q.get("code")
     state = q.get("state")
 
-    oauth_error = q.get("error")
-    if oauth_error and not code:
-        # Authorization server error redirect (no authorization code issued).
-        payload: Dict[str, Any] = {
-            "error": "oauth_provider_error",
-            "oauth_error": oauth_error,
-            "error_description": q.get("error_description"),
-            "state": state,
-        }
-        if q.get("error_uri"):
-            payload["error_uri"] = q.get("error_uri")
-        # Some providers (e.g. Elevance) add extra query keys.
-        for extra_key in ("status_code",):
-            if q.get(extra_key) is not None:
-                payload[extra_key] = q.get(extra_key)
-        return JsonResponse(payload, status=400)
+    if not code:
+        oauth_error = q.get("error")
+        err_desc = q.get("error_description")
+        status_hint = q.get("status_code")
+        # RFC 6749: `error` is present on failure redirects.
+        # Elevance sometimes omits `error` but sends error_description / status_code alone.
+        if oauth_error or err_desc or status_hint is not None:
+            payload: Dict[str, Any] = {
+                "error": "oauth_provider_error",
+                "oauth_error": oauth_error,
+                "error_description": err_desc,
+                "state": state,
+            }
+            if q.get("error_uri"):
+                payload["error_uri"] = q.get("error_uri")
+            if status_hint is not None:
+                payload["status_code"] = status_hint
+            return JsonResponse(payload, status=400)
 
     if not code or not state:
         return JsonResponse({"error": "missing_code_or_state"}, status=400)
@@ -332,24 +334,11 @@ def _bearer_token(request: HttpRequest) -> Optional[str]:
     return auth[len("Bearer ") :].strip() or None
 
 
-@require_http_methods(["GET"])
-def proxy_eob(request: HttpRequest) -> HttpResponse:
-    """
-    Proxy ExplanationOfBenefit from Elevance FHIR.
-
-    Client provides Authorization: Bearer <access_token>.
-    Query param: patient_id (required)
-    """
-    cfg = _elevance_cfg()
+def _fhir_get_json(request: HttpRequest, url: str) -> HttpResponse:
+    """GET a FHIR JSON resource with the caller's Bearer token."""
     token = _bearer_token(request)
     if not token:
         return JsonResponse({"error": "missing_bearer_token"}, status=401)
-
-    patient_id = request.GET.get("patient_id") or request.GET.get("patient")
-    if not patient_id:
-        return JsonResponse({"error": "missing_patient_id"}, status=400)
-
-    url = f"{cfg['fhir_base_url']}/ExplanationOfBenefit?patient={urllib.parse.quote(patient_id)}"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/fhir+json"}
     try:
         resp = requests.get(url, headers=headers, timeout=_http_timeout())
@@ -368,6 +357,60 @@ def proxy_eob(request: HttpRequest) -> HttpResponse:
         )
 
     return JsonResponse(data, status=200, safe=isinstance(data, dict))
+
+
+@require_http_methods(["GET"])
+def proxy_patient(request: HttpRequest) -> HttpResponse:
+    """
+    Proxy Patient read (FHIR R4 GET Patient/{id}).
+
+    Query: patient_id or id (logical id from token `patient` claim).
+    """
+    cfg = _elevance_cfg()
+    patient_id = request.GET.get("patient_id") or request.GET.get("id") or request.GET.get("patient")
+    if not patient_id:
+        return JsonResponse({"error": "missing_patient_id"}, status=400)
+    url = f"{cfg['fhir_base_url']}/Patient/{urllib.parse.quote(patient_id)}"
+    return _fhir_get_json(request, url)
+
+
+@require_http_methods(["GET"])
+def proxy_coverage(request: HttpRequest) -> HttpResponse:
+    """Proxy Coverage search: Coverage?patient={id}."""
+    cfg = _elevance_cfg()
+    patient_id = request.GET.get("patient_id") or request.GET.get("patient")
+    if not patient_id:
+        return JsonResponse({"error": "missing_patient_id"}, status=400)
+    url = f"{cfg['fhir_base_url']}/Coverage?patient={urllib.parse.quote(patient_id)}"
+    return _fhir_get_json(request, url)
+
+
+@require_http_methods(["GET"])
+def proxy_encounter(request: HttpRequest) -> HttpResponse:
+    """Proxy Encounter search: Encounter?patient={id}."""
+    cfg = _elevance_cfg()
+    patient_id = request.GET.get("patient_id") or request.GET.get("patient")
+    if not patient_id:
+        return JsonResponse({"error": "missing_patient_id"}, status=400)
+    url = f"{cfg['fhir_base_url']}/Encounter?patient={urllib.parse.quote(patient_id)}"
+    return _fhir_get_json(request, url)
+
+
+@require_http_methods(["GET"])
+def proxy_eob(request: HttpRequest) -> HttpResponse:
+    """
+    Proxy ExplanationOfBenefit from Elevance FHIR.
+
+    Client provides Authorization: Bearer <access_token>.
+    Query param: patient_id (required)
+    """
+    cfg = _elevance_cfg()
+    patient_id = request.GET.get("patient_id") or request.GET.get("patient")
+    if not patient_id:
+        return JsonResponse({"error": "missing_patient_id"}, status=400)
+
+    url = f"{cfg['fhir_base_url']}/ExplanationOfBenefit?patient={urllib.parse.quote(patient_id)}"
+    return _fhir_get_json(request, url)
 
 
 @require_http_methods(["GET"])

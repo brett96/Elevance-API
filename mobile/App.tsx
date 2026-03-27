@@ -85,6 +85,9 @@ export default function App() {
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
+      {screen === "handoff" ? (
+        <HandoffScreen initialUrl={handoffUrl} />
+      ) : (
       <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ flex: 1, padding: 16 }}>
         <Text style={{ fontSize: 20, fontWeight: "600" }}>Medicare Retention Edge-AI POC</Text>
 
@@ -155,10 +158,10 @@ export default function App() {
               paddingVertical: 10,
               paddingHorizontal: 14,
               borderRadius: 10,
-              backgroundColor: screen === "handoff" ? "#111" : "#eee",
+              backgroundColor: "#eee",
             }}
           >
-            <Text style={{ color: screen === "handoff" ? "#fff" : "#111" }}>Handoff</Text>
+            <Text style={{ color: "#111" }}>Handoff</Text>
           </TouchableOpacity>
         </View>
 
@@ -166,6 +169,7 @@ export default function App() {
 
         {screenEl}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

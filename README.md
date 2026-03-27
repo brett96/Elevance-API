@@ -91,6 +91,9 @@ flowchart LR
 | `GET /authorize/` | Start OAuth; stores PKCE in DB, redirects to Elevance |
 | `GET /callback/` | Elevance redirect; exchanges code; redirects to app with one-time `code` |
 | `POST /api/auth/exchange/` | Body: `{"code":"<one-time>"}` → token JSON |
+| `GET /api/fhir/patient/?patient_id=...` | Header: `Authorization: Bearer ...` → `Patient/{id}` |
+| `GET /api/fhir/coverage/?patient_id=...` | Header: `Authorization: Bearer ...` → `Coverage?patient=` bundle |
+| `GET /api/fhir/encounter/?patient_id=...` | Header: `Authorization: Bearer ...` → `Encounter?patient=` bundle |
 | `GET /api/fhir/eob/?patient_id=...` | Header: `Authorization: Bearer ...` → proxied FHIR JSON |
 | `GET /api/drugs/?name=...` | Proxied DailyMed drug name search (POC) |
 
