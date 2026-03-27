@@ -17,7 +17,20 @@ import { TestPromptScreen } from "./src/screens/TestPromptScreen";
 type Screen = "setup" | "prompt" | "handoff";
 
 function looksLikeHandoffUrl(url: string): boolean {
-  return url.includes("/handoff") || url.includes("://oauth/callback") || url.includes("/callback");
+  if (url.includes("/handoff") || url.includes("://oauth/callback") || url.includes("/callback")) {
+    return true;
+  }
+  // Expo web on Vercel: prefer APP_HANDOFF_URL_BASE=https://your-expo.vercel.app (no path) so the
+  // redirect is /?code=...&api_base=... — always serves index.html. /handoff needs SPA rewrites.
+  try {
+    const u = new URL(url);
+    if (u.searchParams.has("code") && u.searchParams.has("api_base")) {
+      return true;
+    }
+  } catch {
+    // ignore invalid URL
+  }
+  return false;
 }
 
 export default function App() {

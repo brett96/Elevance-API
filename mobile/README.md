@@ -74,8 +74,8 @@ Then on the phone’s browser you can try `http://192.168.0.108:8000/` — you s
 
 This repo’s Django `/callback` endpoint can redirect to an **HTTPS handoff page** (works on desktop browsers) that then opens the native app when installed.
 
-- **Backend env**: set `APP_HANDOFF_URL_BASE` to your Expo web URL, e.g. `https://your-expo-web-host/handoff`
-- **Expo web route**: the app detects `/handoff?code=...` and renders a “Sign-in complete” page with:
+- **Backend env**: set `APP_HANDOFF_URL_BASE` to your Expo web **origin** (no path), e.g. `https://your-expo-web-host.vercel.app`. Django redirects to `/?code=...&api_base=...` so Vercel static hosting serves `index.html` (a bare `/handoff` path often 404s without SPA rewrites).
+- **Expo web route**: the app detects `/handoff?code=...` **or** `/?code=...&api_base=...` and renders the handoff page with:
   - **Open the app** (custom scheme fallback)
   - **Copy code**
   - token metadata and patient/EOB summary (via API exchange + proxy endpoints)
@@ -96,6 +96,8 @@ npx expo start --web
 
 Then open a URL like:
 
-`http://localhost:19006/handoff?code=example`
+`http://localhost:8081/?code=example&api_base=https://elevance-api.vercel.app`
+
+(or `http://localhost:8081/handoff?code=example` if you rely on dev-server SPA behavior)
 
 You should see the handoff screen.

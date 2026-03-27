@@ -108,7 +108,7 @@ flowchart LR
 
 **App handoff**
 
-- `APP_HANDOFF_URL_BASE` — **recommended** HTTPS handoff page base, e.g. `https://your-expo-web-host/handoff` (backend redirects here with `?code=...` so desktop browsers work)
+- `APP_HANDOFF_URL_BASE` — **recommended** Expo web **origin** only, e.g. `https://your-expo-web-host.vercel.app` (backend appends `?code=...&api_base=...`; avoid `/handoff` unless your static host rewrites that path to `index.html`)
 - `APP_DEEPLINK_CALLBACK_BASE` — native fallback, e.g. `medicare-retention://oauth/callback` (custom scheme; desktop browsers cannot open this). Used only if `APP_HANDOFF_URL_BASE` is unset.
 - `PUBLIC_API_BASE_URL` (optional) — explicit API host used when generating handoff redirect `api_base=...` query param for the web handoff page
 
