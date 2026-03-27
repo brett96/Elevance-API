@@ -84,6 +84,16 @@ def _elevance_cfg() -> dict[str, str]:
     }
 
 
+def _http_redirect(location: str) -> HttpResponse:
+    """
+    302 with arbitrary Location. django.shortcuts.redirect() only allows http/https/ftp;
+    mobile deep links (e.g. medicare-retention://oauth/callback) raise DisallowedRedirect.
+    """
+    r = HttpResponse(status=302)
+    r["Location"] = location
+    return r
+
+
 @require_GET
 def authorize(request: HttpRequest) -> HttpResponse:
     """
@@ -188,7 +198,8 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
 
     deeplink_base = _require_env("APP_DEEPLINK_CALLBACK_BASE")
     sep = "&" if ("?" in deeplink_base) else "?"
-    return redirect(f"{deeplink_base}{sep}code={urllib.parse.quote(exchange_code)}")
+    target = f"{deeplink_base}{sep}code={urllib.parse.quote(exchange_code)}"
+    return _http_redirect(target)
 
 
 @csrf_exempt
