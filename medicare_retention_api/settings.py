@@ -16,6 +16,14 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load `.env` from project root so local dev matches shell env (Vercel uses real env vars).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     v = os.environ.get(name)
@@ -81,7 +89,11 @@ WSGI_APPLICATION = "medicare_retention_api.wsgi.application"
 
 
 DATABASE_URL = _env("DATABASE_URL")
-if DATABASE_URL:
+# Local Windows/Mac dev: set DJANGO_USE_SQLITE=1 to use SQLite even if DATABASE_URL is set
+# (e.g. you copied production env but Postgres is not running on localhost).
+USE_SQLITE_LOCAL = _env("DJANGO_USE_SQLITE", "0") == "1"
+
+if DATABASE_URL and not USE_SQLITE_LOCAL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
@@ -90,7 +102,7 @@ if DATABASE_URL:
         )
     }
 else:
-    # Local fallback for development only.
+    # Local fallback when DATABASE_URL is unset, or when DJANGO_USE_SQLITE=1.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -98,7 +110,7 @@ else:
         }
     }
 
-# Force close connections per-request when using Postgres in serverless.
+# Force close connections per-request when using Postgres in serverless (ignored for SQLite).
 CONN_MAX_AGE = 0
 
 

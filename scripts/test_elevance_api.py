@@ -23,9 +23,19 @@ import textwrap
 import time
 import urllib.parse
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, Union
 
 import requests
+
+# Load project-root `.env` into os.environ (Python does not read .env files by default).
+try:
+    from dotenv import load_dotenv
+
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    load_dotenv(_PROJECT_ROOT / ".env")
+except ImportError:
+    pass
 
 
 DEFAULT_ELEVANCE_AUTH_URL = (
@@ -39,6 +49,27 @@ DEFAULT_ELEVANCE_FHIR_BASE_URL = (
 )
 
 DEFAULT_SCOPE = "launch/patient patient/*.read openid fhirUser"
+
+
+def _http_timeout() -> Union[float, Tuple[float, float]]:
+    """
+    Timeouts for requests to Elevance.
+
+    Uses separate connect vs read limits: token exchange often needs a generous *read* timeout
+    (slow networks, API latency). Override with:
+
+      ELEVANCE_HTTP_CONNECT_TIMEOUT_S  (default 20)
+      ELEVANCE_HTTP_READ_TIMEOUT_S       (default 90)
+
+    Legacy: ELEVANCE_HTTP_TIMEOUT_S sets both connect and read if the above are unset (default 60).
+    """
+    legacy = os.environ.get("ELEVANCE_HTTP_TIMEOUT_S")
+    if legacy and legacy.strip():
+        v = float(legacy.strip())
+        return v
+    connect = float(os.environ.get("ELEVANCE_HTTP_CONNECT_TIMEOUT_S", "20"))
+    read = float(os.environ.get("ELEVANCE_HTTP_READ_TIMEOUT_S", "90"))
+    return (connect, read)
 
 
 @dataclass(frozen=True)
@@ -167,7 +198,12 @@ def _pretty(obj: Any) -> str:
 
 
 def exchange_code_for_token(
-    cfg: ElevanceConfig, *, code: str, code_verifier: str, timeout_s: float = 15.0
+    cfg: ElevanceConfig,
+    *,
+    code: str,
+    code_verifier: str,
+    timeout: Union[float, Tuple[float, float]] | None = None,
+    max_retries: int = 2,
 ) -> Dict[str, Any]:
     """
     Exchange authorization code for token(s) at the token endpoint.
@@ -186,16 +222,40 @@ def exchange_code_for_token(
         "code_verifier": code_verifier,
     }
 
-    try:
-        resp = requests.post(
-            cfg.token_url,
-            data=payload,
-            auth=requests.auth.HTTPBasicAuth(cfg.client_id, cfg.client_secret),
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=timeout_s,
-        )
-    except requests.RequestException as e:
-        raise OAuthFlowError(f"Token request failed (network/timeout): {e}") from e
+    timeout = timeout if timeout is not None else _http_timeout()
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.post(
+                cfg.token_url,
+                data=payload,
+                auth=requests.auth.HTTPBasicAuth(cfg.client_id, cfg.client_secret),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=timeout,
+            )
+            break
+        except requests.Timeout as e:
+            if attempt < max_retries:
+                wait = 2 * (attempt + 1)
+                print(
+                    f"[WARN] Token request timed out (attempt {attempt + 1}/{max_retries + 1}); "
+                    f"retrying in {wait}s...",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+                continue
+            hint = textwrap.dedent(
+                """
+                If this keeps timing out:
+                  - Try from another network (VPN off/on, hotspot) in case a firewall blocks Python.
+                  - Increase read timeout: ELEVANCE_HTTP_READ_TIMEOUT_S=120
+                  - Test connectivity: curl -v -X POST "<TOKEN_URL>" ...
+                """
+            ).strip()
+            raise OAuthFlowError(
+                f"Token request failed (read/connect timeout after {max_retries + 1} attempt(s)): {e}\n{hint}"
+            ) from e
+        except requests.RequestException as e:
+            raise OAuthFlowError(f"Token request failed (network): {e}") from e
 
     content_type = resp.headers.get("Content-Type", "")
     is_json = "json" in content_type.lower()
@@ -227,15 +287,16 @@ def fetch_eob(
     *,
     access_token: str,
     patient_id: str,
-    timeout_s: float = 15.0,
+    timeout: Union[float, Tuple[float, float]] | None = None,
 ) -> Dict[str, Any]:
     url = f"{cfg.fhir_base_url}/ExplanationOfBenefit?patient={urllib.parse.quote(patient_id)}"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/fhir+json",
     }
+    timeout = timeout if timeout is not None else _http_timeout()
     try:
-        resp = requests.get(url, headers=headers, timeout=timeout_s)
+        resp = requests.get(url, headers=headers, timeout=timeout)
     except requests.RequestException as e:
         raise RuntimeError(f"FHIR request failed (network/timeout): {e}") from e
 
@@ -269,6 +330,7 @@ def main() -> int:
                   $env:ELEVANCE_TOKEN_URL="{DEFAULT_ELEVANCE_TOKEN_URL}"
                   $env:ELEVANCE_FHIR_BASE_URL="{DEFAULT_ELEVANCE_FHIR_BASE_URL}"
                   $env:ELEVANCE_SCOPE="{DEFAULT_SCOPE}"
+                  $env:ELEVANCE_HTTP_READ_TIMEOUT_S="120"
                 """
             ).strip(),
             file=sys.stderr,

@@ -7,7 +7,7 @@ import os
 import secrets
 import urllib.parse
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple, Union
 
 import requests
 from cryptography.fernet import Fernet
@@ -21,7 +21,16 @@ from gateway.models import PkceSession, TokenExchangeCode
 
 
 DEFAULT_SCOPE = "launch/patient patient/*.read openid fhirUser"
-DEFAULT_TIMEOUT_S = 12.0
+
+
+def _http_timeout() -> Union[float, Tuple[float, float]]:
+    """Same semantics as scripts/test_elevance_api.py (connect vs read for slow token API)."""
+    legacy = _env("ELEVANCE_HTTP_TIMEOUT_S")
+    if legacy:
+        return float(legacy)
+    connect = float(_env("ELEVANCE_HTTP_CONNECT_TIMEOUT_S", "20") or "20")
+    read = float(_env("ELEVANCE_HTTP_READ_TIMEOUT_S", "90") or "90")
+    return (connect, read)
 
 
 class ConfigError(RuntimeError):
@@ -150,7 +159,7 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
             data=token_payload,
             auth=requests.auth.HTTPBasicAuth(cfg["client_id"], cfg["client_secret"]),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=DEFAULT_TIMEOUT_S,
+            timeout=_http_timeout(),
         )
     except requests.RequestException as e:
         return JsonResponse({"error": "token_request_failed", "detail": str(e)}, status=502)
@@ -254,7 +263,7 @@ def proxy_eob(request: HttpRequest) -> HttpResponse:
     url = f"{cfg['fhir_base_url']}/ExplanationOfBenefit?patient={urllib.parse.quote(patient_id)}"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/fhir+json"}
     try:
-        resp = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT_S)
+        resp = requests.get(url, headers=headers, timeout=_http_timeout())
     except requests.RequestException as e:
         return JsonResponse({"error": "fhir_request_failed", "detail": str(e)}, status=502)
 
@@ -287,7 +296,7 @@ def proxy_dailymed(request: HttpRequest) -> HttpResponse:
     url = "https://dailymed.nlm.nih.gov/dailymed/services/v2/drugnames.json"
     params = {"drug_name": name}
     try:
-        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT_S)
+        resp = requests.get(url, params=params, timeout=_http_timeout())
     except requests.RequestException as e:
         return JsonResponse({"error": "dailymed_request_failed", "detail": str(e)}, status=502)
 

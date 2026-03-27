@@ -134,7 +134,15 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Set env vars (at minimum for OAuth views: Elevance vars + `TOKEN_ENCRYPTION_KEY`; for DB migrations: `DATABASE_URL` or rely on SQLite fallback if `DATABASE_URL` is unset).
+**`.env`:** With `python-dotenv` installed, both Django and `scripts/test_elevance_api.py` load a `.env` file from the **project root** (same folder as `manage.py`). Variable names must match the documented `ELEVANCE_*` / `DJANGO_*` keys—creating `.env` alone does nothing until you run `pip install -r requirements.txt` (or `pip install python-dotenv`).
+
+**Postgres on localhost:** If `.env` sets `DATABASE_URL` to Postgres (e.g. for Vercel) but **no Postgres is running on your PC**, `runserver` will fail with *connection refused* on port 5432. For local API work, either:
+
+- Set **`DJANGO_USE_SQLITE=1`** in `.env` (uses `db.sqlite3` in the project folder and ignores `DATABASE_URL` for Django), **or**
+- Remove / comment out `DATABASE_URL` locally so Django falls back to SQLite, **or**
+- Install and start PostgreSQL locally to match `DATABASE_URL`.
+
+Set env vars (at minimum for OAuth views: Elevance vars + `TOKEN_ENCRYPTION_KEY`; for DB: use `DJANGO_USE_SQLITE=1` locally or a reachable `DATABASE_URL`).
 
 ```powershell
 python manage.py migrate
@@ -142,6 +150,12 @@ python manage.py runserver
 ```
 
 Open `http://127.0.0.1:8000/` — you should see JSON describing the API. A 404 on `/` before the root route was added meant no route existed; the project now serves **`GET /`** as a small JSON index.
+
+**Phone or another PC on the same LAN:** `runserver` only binds to localhost by default, so **`http://192.168.x.x:8000` will not work** from other devices until you run:
+
+`python manage.py runserver 0.0.0.0:8000`
+
+Allow **Python** through Windows Firewall if prompted. (This is separate from **Expo/Metro on port 8081** — see [mobile/README.md](mobile/README.md).)
 
 ### Vercel
 
@@ -166,6 +180,8 @@ See `scripts/README.md` for a shorter quick start.
 ---
 
 ## Mobile app (`mobile/`)
+
+See **[mobile/README.md](mobile/README.md)** for dependency hygiene (avoid `npm audit fix --force`, use `npx expo install`).
 
 - **Expo + Dev Client** so native modules (llama, SQLite) are usable.
 - **`ModelManager`**: downloads `.gguf` from an HTTPS URL into app document storage with progress.
