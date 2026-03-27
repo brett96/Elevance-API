@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import List
 
@@ -180,9 +181,16 @@ USE_TZ = True
 
 
 STATIC_URL = "static/"
-STATIC_ROOT = str(BASE_DIR / "staticfiles")
-# Manifest storage requires collectstatic + staticfiles.json; missing bundle paths on Vercel
-# trigger WhiteNoise warnings. Use manifest locally; simpler storage on Vercel (API gateway).
+# Vercel serverless bundles often omit repo `staticfiles/` at /var/task (read-only / missing).
+# WhiteNoise warns if STATIC_ROOT is missing; use writable /tmp on Vercel (API gateway; admin CSS optional).
+if IS_VERCEL:
+    _vercel_static = Path(tempfile.gettempdir()) / "django_staticfiles"
+    _vercel_static.mkdir(parents=True, exist_ok=True)
+    STATIC_ROOT = str(_vercel_static)
+else:
+    STATIC_ROOT = str(BASE_DIR / "staticfiles")
+
+# Manifest storage requires collectstatic + staticfiles.json; use manifest locally; simpler on Vercel.
 if IS_VERCEL:
     STORAGES = {
         "staticfiles": {

@@ -236,6 +236,28 @@ def exchange_code(request: HttpRequest) -> HttpResponse:
     return JsonResponse(token, status=200)
 
 
+@require_GET
+def oauth_debug_config(request: HttpRequest) -> HttpResponse:
+    """
+    When OAUTH_DEBUG=1, return redirect + client id for troubleshooting Elevance 401 Invalid Redirect Uri.
+
+    Set OAUTH_DEBUG=1 in Vercel temporarily; compare redirect_uri to the Elevance developer portal.
+    """
+    if _env("OAUTH_DEBUG", "0") != "1":
+        return JsonResponse({"error": "not_found"}, status=404)
+    try:
+        return JsonResponse(
+            {
+                "redirect_uri": _require_env("ELEVANCE_REDIRECT_URI"),
+                "authorize_url": _require_env("ELEVANCE_AUTH_URL"),
+                "client_id": _require_env("ELEVANCE_CLIENT_ID"),
+                "hint": "Register redirect_uri EXACTLY in Elevance (https, host, path, trailing slash).",
+            }
+        )
+    except ConfigError as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
 def _bearer_token(request: HttpRequest) -> Optional[str]:
     auth = request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer "):
