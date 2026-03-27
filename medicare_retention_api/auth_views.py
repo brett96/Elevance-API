@@ -150,9 +150,31 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
     """
     OAuth redirect target: receives temporary `code` + `state`, exchanges for tokens,
     then redirects to the mobile deep-link with a one-time exchange code.
+
+    If the IdP redirects with `error` (RFC 6749) instead of `code`, return that payload
+    so logs and browsers show the real provider message (not generic missing_code_or_state).
     """
-    code = request.GET.get("code")
-    state = request.GET.get("state")
+    q = request.GET
+    code = q.get("code")
+    state = q.get("state")
+
+    oauth_error = q.get("error")
+    if oauth_error and not code:
+        # Authorization server error redirect (no authorization code issued).
+        payload: Dict[str, Any] = {
+            "error": "oauth_provider_error",
+            "oauth_error": oauth_error,
+            "error_description": q.get("error_description"),
+            "state": state,
+        }
+        if q.get("error_uri"):
+            payload["error_uri"] = q.get("error_uri")
+        # Some providers (e.g. Elevance) add extra query keys.
+        for extra_key in ("status_code",):
+            if q.get(extra_key) is not None:
+                payload[extra_key] = q.get(extra_key)
+        return JsonResponse(payload, status=400)
+
     if not code or not state:
         return JsonResponse({"error": "missing_code_or_state"}, status=400)
 
