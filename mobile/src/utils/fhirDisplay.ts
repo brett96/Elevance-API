@@ -61,3 +61,79 @@ export function stringifyLimited(obj: unknown, maxChars = 12000): string {
     return String(obj);
   }
 }
+
+function codingDisplay(c: { coding?: Array<{ display?: string; code?: string; system?: string }> }): string {
+  const x = c?.coding?.[0];
+  if (!x) return "";
+  return (x.display || x.code || "").trim();
+}
+
+/** One line per Coverage resource in a search Bundle. */
+export function summarizeCoverageLines(bundle: unknown, max = 12): string[] {
+  const b = bundle as { entry?: Array<{ resource?: unknown }> };
+  if (!Array.isArray(b?.entry)) return [];
+  const out: string[] = [];
+  for (let i = 0; i < Math.min(b.entry.length, max); i++) {
+    const r = b.entry[i].resource as any;
+    if (!r || r.resourceType !== "Coverage") continue;
+    const status = r.status ?? "?";
+    const type = codingDisplay(r.type || {});
+    const payor = Array.isArray(r.payor)
+      ? r.payor
+          .map((p: any) => p.display || p.reference || "")
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    const id = r.id || "?";
+    out.push(`#${i + 1}  id ${id}  status ${status}${type ? `  type ${type}` : ""}${payor ? `  payor ${payor}` : ""}`);
+  }
+  return out;
+}
+
+/** One line per Encounter in a search Bundle. */
+export function summarizeEncounterLines(bundle: unknown, max = 12): string[] {
+  const b = bundle as { entry?: Array<{ resource?: unknown }> };
+  if (!Array.isArray(b?.entry)) return [];
+  const out: string[] = [];
+  for (let i = 0; i < Math.min(b.entry.length, max); i++) {
+    const r = b.entry[i].resource as any;
+    if (!r || r.resourceType !== "Encounter") continue;
+    const status = r.status ?? "?";
+    const cls = r.class?.display || r.class?.code || "";
+    const start = r.period?.start || r.period?.end || "";
+    const type = Array.isArray(r.type)
+      ? r.type.map((t: any) => codingDisplay(t)).filter(Boolean).join("; ")
+      : codingDisplay(r.type || {});
+    const id = r.id || "?";
+    out.push(`#${i + 1}  id ${id}  ${status}${cls ? `  class ${cls}` : ""}${start ? `  ${start}` : ""}${type ? `  ${type}` : ""}`);
+  }
+  return out;
+}
+
+/** One block per ExplanationOfBenefit in a search Bundle. */
+export function summarizeEobBlocks(bundle: unknown, max = 20): string[] {
+  const b = bundle as { entry?: Array<{ resource?: unknown }> };
+  if (!Array.isArray(b?.entry)) return [];
+  const out: string[] = [];
+  for (let i = 0; i < Math.min(b.entry.length, max); i++) {
+    const r = b.entry[i].resource as any;
+    if (!r || r.resourceType !== "ExplanationOfBenefit") continue;
+    const id = r.id ?? "?";
+    const status = r.status ?? "?";
+    const type = codingDisplay(r.type || {});
+    const subType = codingDisplay(r.subType || {});
+    const outc = r.outcome ?? "";
+    const billStart = r.billablePeriod?.start || "";
+    const billEnd = r.billablePeriod?.end || "";
+    const created = r.created || "";
+    const lines = [
+      `Claim / EOB #${i + 1}  (id ${id})`,
+      `  status: ${status}${type ? `  type: ${type}` : ""}${subType ? `  subType: ${subType}` : ""}`,
+    ];
+    if (outc) lines.push(`  outcome: ${outc}`);
+    if (billStart || billEnd) lines.push(`  billable period: ${billStart} → ${billEnd || "—"}`);
+    if (created) lines.push(`  created: ${created}`);
+    out.push(lines.join("\n"));
+  }
+  return out;
+}

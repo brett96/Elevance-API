@@ -8,6 +8,9 @@ import {
   formatFhirTelecom,
   parseJwtPayload,
   stringifyLimited,
+  summarizeCoverageLines,
+  summarizeEobBlocks,
+  summarizeEncounterLines,
 } from "../utils/fhirDisplay";
 
 function getQueryParamFromUrl(url: string, key: string): string | null {
@@ -41,6 +44,18 @@ async function fetchFhirJson(
   }
   return { ok: r.ok, status: r.status, data };
 }
+
+const card = {
+  padding: 16,
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: "#e0e0e0",
+  backgroundColor: "#fff",
+  marginBottom: 14,
+} as const;
+
+const h2 = { fontSize: 18, fontWeight: "700" as const, color: "#111", marginBottom: 8 };
+const muted = { fontSize: 13, color: "#555", lineHeight: 20 };
 
 export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
   const sourceUrl = useMemo(() => {
@@ -84,6 +99,7 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
   const [eobBundle, setEobBundle] = useState<any>(null);
   const [resourceErrors, setResourceErrors] = useState<Record<string, string>>({});
   const [idTokenClaims, setIdTokenClaims] = useState<Record<string, unknown> | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   useEffect(() => {
     const run = async () => {
@@ -109,7 +125,7 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
           throw new Error(tokenJson?.error || `exchange_failed_${tokenResp.status}`);
         }
         setTokenPayload(tokenJson);
-        setStatus("Token received. Loading FHIR patient data...");
+        setStatus("Token received. Loading patient & claims data...");
 
         const patientId =
           (tokenJson?.patient as string | undefined) ||
@@ -150,7 +166,7 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
         else errs.eob = summarizeFhirError(eob);
 
         if (Object.keys(errs).length) setResourceErrors(errs);
-        setStatus("Loaded patient and related resources.");
+        setStatus("Done.");
       } catch (e: any) {
         setExchangeError(e?.message ?? String(e));
         setStatus("Unable to complete token exchange.");
@@ -179,6 +195,10 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
     };
   }, [patientResource]);
 
+  const eobLines = useMemo(() => summarizeEobBlocks(eobBundle, 25), [eobBundle]);
+  const coverageLines = useMemo(() => summarizeCoverageLines(coverageBundle, 15), [coverageBundle]);
+  const encounterLines = useMemo(() => summarizeEncounterLines(encounterBundle, 15), [encounterBundle]);
+
   const copy = useCallback(async () => {
     if (!code) return;
     try {
@@ -203,225 +223,261 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
   }, [deepLink]);
 
   const mono = Platform.OS === "web" ? ("monospace" as const) : "Courier";
+  const webShadow =
+    Platform.OS === "web"
+      ? ({
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        } as const)
+      : {};
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, maxWidth: 900, width: "100%", alignSelf: "center" }}>
-      <Text style={{ fontSize: 22, fontWeight: "700" }}>Sign-in complete</Text>
-      <View style={{ height: 10 }} />
-      <Text>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: "#f4f6f8" }}
+      contentContainerStyle={{
+        padding: 20,
+        maxWidth: 720,
+        width: "100%",
+        alignSelf: "center",
+        paddingBottom: 48,
+      }}
+    >
+      <Text style={{ fontSize: 26, fontWeight: "800", color: "#0a0a0a", marginBottom: 6 }}>Signed in</Text>
+      <Text style={{ ...muted, marginBottom: 20 }}>
         {code
-          ? "OAuth callback complete. Patient and related FHIR data (when permitted by scope) are shown below."
-          : "Missing handoff code. Re-run the OAuth flow to reach this page with ?code=..."}
+          ? "Patient summary from Elevance FHIR (via your API proxy). OpenID and raw JSON are hidden unless you expand technical details."
+          : "Missing handoff code. Open this page from the OAuth redirect with ?code=...&api_base=..."}
       </Text>
 
-      <View style={{ height: 16 }} />
-
       {code ? (
-        <View
-          style={{
-            padding: 12,
-            borderWidth: 1,
-            borderColor: "#ddd",
-            borderRadius: 12,
-            backgroundColor: "#fafafa",
-          }}
-        >
-          <Text style={{ fontWeight: "700" }}>One-time code</Text>
-          <View style={{ height: 8 }} />
-          <Text style={{ fontFamily: mono }}>{code}</Text>
-
-          <View style={{ height: 12 }} />
-
-          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" as any }}>
-            <TouchableOpacity
-              onPress={openApp}
-              style={{
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 10,
-                backgroundColor: "#111",
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>Open the app</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={copy}
-              style={{
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 10,
-                backgroundColor: "#eee",
-              }}
-            >
-              <Text style={{ color: "#111", fontWeight: "700" }}>Copy code</Text>
-            </TouchableOpacity>
-          </View>
-
-          {deepLink ? (
-            <>
-              <View style={{ height: 12 }} />
-              <Text style={{ fontSize: 12, opacity: 0.8 }}>
-                Deep link (mobile): <Text style={{ fontFamily: mono }}>{deepLink}</Text>
-              </Text>
-            </>
-          ) : null}
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>Backend</Text>
-          <View style={{ height: 6 }} />
-          <Text style={{ fontFamily: mono }}>
-            {apiBase || "(missing api_base; set EXPO_PUBLIC_API_BASE_URL or pass ?api_base=...)"}
-          </Text>
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>Token (metadata)</Text>
-          <View style={{ height: 6 }} />
-          {exchangeBusy ? <Text>Loading...</Text> : null}
-          {tokenPayload ? (
-            <View>
-              <Text>
-                token_type: {String(tokenPayload.token_type || "(missing)")} | expires_in:{" "}
-                {String(tokenPayload.expires_in ?? "(missing)")}
-              </Text>
-              <Text>scope: {String(tokenPayload.scope || "(missing)")}</Text>
-              <Text>patient: {String(tokenPayload.patient || tokenPayload.patient_id || "(none)")}</Text>
-              <Text style={{ fontFamily: mono }}>access_token: {maskedAccessToken || "(missing)"}</Text>
-            </View>
-          ) : null}
-
-          {idTokenClaims ? (
-            <>
-              <View style={{ height: 14 }} />
-              <Text style={{ fontWeight: "700" }}>ID token claims (openid)</Text>
-              <View style={{ height: 6 }} />
-              <Text style={{ fontFamily: mono, fontSize: 12 }}>{stringifyLimited(idTokenClaims, 8000)}</Text>
-            </>
-          ) : null}
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>Patient demographics</Text>
-          <View style={{ height: 6 }} />
+        <>
           {patientDemographics ? (
-            <View>
-              <Text>Name: {patientDemographics.name}</Text>
-              <Text>Birth date: {String(patientDemographics.birthDate)}</Text>
-              <Text>Gender: {String(patientDemographics.gender)}</Text>
+            <View style={{ ...card, ...webShadow }}>
+              <Text style={h2}>Patient</Text>
+              <Text style={{ fontSize: 22, fontWeight: "700", color: "#111", marginBottom: 4 }}>
+                {patientDemographics.name}
+              </Text>
+              <Text style={muted}>
+                Born {String(patientDemographics.birthDate)} · {String(patientDemographics.gender)}
+              </Text>
               {patientDemographics.addresses.length ? (
-                <View style={{ marginTop: 6 }}>
-                  <Text style={{ fontWeight: "600" }}>Address</Text>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ fontWeight: "600", marginBottom: 4 }}>Address</Text>
                   {patientDemographics.addresses.map((a, i) => (
-                    <Text key={i}>{a}</Text>
+                    <Text key={i} style={muted}>
+                      {a}
+                    </Text>
                   ))}
                 </View>
-              ) : (
-                <Text style={{ marginTop: 4 }}>(No address on Patient resource.)</Text>
-              )}
+              ) : null}
               {patientDemographics.telecom.length ? (
-                <View style={{ marginTop: 6 }}>
-                  <Text style={{ fontWeight: "600" }}>Contact</Text>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ fontWeight: "600", marginBottom: 4 }}>Contact</Text>
                   {patientDemographics.telecom.map((t, i) => (
-                    <Text key={i}>{t}</Text>
+                    <Text key={i} style={muted}>
+                      {t}
+                    </Text>
                   ))}
                 </View>
               ) : null}
             </View>
-          ) : tokenPayload ? (
-            <Text>(Patient resource not loaded or not a Patient.)</Text>
-          ) : null}
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>Coverage</Text>
-          <View style={{ height: 6 }} />
-          {coverageBundle ? (
-            <Text>
-              Bundle entries: {bundleEntryCount(coverageBundle)} | resourceType:{" "}
-              {String(coverageBundle.resourceType || "?")}
-            </Text>
-          ) : (
-            <Text>(Not loaded.)</Text>
-          )}
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>Encounters</Text>
-          <View style={{ height: 6 }} />
-          {encounterBundle ? (
-            <Text>
-              Bundle entries: {bundleEntryCount(encounterBundle)} | resourceType:{" "}
-              {String(encounterBundle.resourceType || "?")}
-            </Text>
-          ) : (
-            <Text>(Not loaded.)</Text>
-          )}
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>ExplanationOfBenefit</Text>
-          <View style={{ height: 6 }} />
-          {eobBundle ? (
-            <Text>
-              Bundle total: {String(typeof eobBundle.total === "number" ? eobBundle.total : "(n/a)")} | entries:{" "}
-              {bundleEntryCount(eobBundle)}
-            </Text>
-          ) : (
-            <Text>(Not loaded.)</Text>
-          )}
-
-          <View style={{ height: 14 }} />
-          <Text style={{ fontWeight: "700" }}>Raw FHIR JSON (truncated)</Text>
-          <Text style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
-            Full resources returned by the server (POC/debug). Treat as sensitive.
-          </Text>
-          {patientResource ? (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={{ fontWeight: "600" }}>Patient</Text>
-              <Text style={{ fontFamily: mono, fontSize: 11 }}>{stringifyLimited(patientResource, 10000)}</Text>
+          ) : tokenPayload && !exchangeBusy ? (
+            <View style={{ ...card, ...webShadow }}>
+              <Text style={h2}>Patient</Text>
+              <Text style={muted}>(Could not load Patient resource — see errors below.)</Text>
             </View>
           ) : null}
-          {coverageBundle ? (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={{ fontWeight: "600" }}>Coverage bundle</Text>
-              <Text style={{ fontFamily: mono, fontSize: 11 }}>{stringifyLimited(coverageBundle, 10000)}</Text>
-            </View>
-          ) : null}
-          {encounterBundle ? (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={{ fontWeight: "600" }}>Encounter bundle</Text>
-              <Text style={{ fontFamily: mono, fontSize: 11 }}>{stringifyLimited(encounterBundle, 10000)}</Text>
-            </View>
-          ) : null}
-          {eobBundle ? (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={{ fontWeight: "600" }}>EOB bundle</Text>
-              <Text style={{ fontFamily: mono, fontSize: 11 }}>{stringifyLimited(eobBundle, 10000)}</Text>
-            </View>
-          ) : null}
+
+          <View style={{ ...card, ...webShadow }}>
+            <Text style={h2}>Claims &amp; benefits (ExplanationOfBenefit)</Text>
+            {eobBundle ? (
+              <>
+                <Text style={{ ...muted, marginBottom: 10 }}>
+                  {bundleEntryCount(eobBundle)} EOB(s) in this bundle
+                  {typeof eobBundle.total === "number" ? ` · reported total: ${eobBundle.total}` : ""}
+                </Text>
+                {eobLines.length ? (
+                  eobLines.map((block, i) => (
+                    <View
+                      key={i}
+                      style={{
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        backgroundColor: "#f9fafb",
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        borderWidth: 1,
+                        borderColor: "#eee",
+                      }}
+                    >
+                      <Text style={{ ...muted, fontFamily: mono, fontSize: 12 }}>{block}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={muted}>No EOB entries in the bundle (empty result is normal for some sandboxes).</Text>
+                )}
+              </>
+            ) : (
+              <Text style={muted}>{exchangeBusy ? "Loading…" : "Not loaded."}</Text>
+            )}
+          </View>
+
+          <View style={{ ...card, ...webShadow }}>
+            <Text style={h2}>Coverage</Text>
+            {coverageBundle ? (
+              coverageLines.length ? (
+                coverageLines.map((line, i) => (
+                  <Text key={i} style={{ ...muted, marginBottom: 6 }}>
+                    {line}
+                  </Text>
+                ))
+              ) : (
+                <Text style={muted}>No coverage rows in bundle.</Text>
+              )
+            ) : (
+              <Text style={muted}>{exchangeBusy ? "Loading…" : "Not loaded."}</Text>
+            )}
+          </View>
+
+          <View style={{ ...card, ...webShadow }}>
+            <Text style={h2}>Encounters</Text>
+            {encounterBundle ? (
+              encounterLines.length ? (
+                encounterLines.map((line, i) => (
+                  <Text key={i} style={{ ...muted, marginBottom: 6 }}>
+                    {line}
+                  </Text>
+                ))
+              ) : (
+                <Text style={muted}>No encounters in bundle.</Text>
+              )
+            ) : (
+              <Text style={muted}>{exchangeBusy ? "Loading…" : "Not loaded."}</Text>
+            )}
+          </View>
 
           {Object.keys(resourceErrors).length ? (
-            <>
-              <View style={{ height: 12 }} />
-              <Text style={{ fontWeight: "700" }}>Resource load errors</Text>
+            <View style={{ ...card, borderColor: "#f5c6cb", backgroundColor: "#fff5f5" }}>
+              <Text style={{ ...h2, color: "#721c24" }}>Could not load some data</Text>
               {Object.entries(resourceErrors).map(([k, v]) => (
-                <Text key={k} style={{ color: "#a11", marginTop: 4 }}>
-                  {k}: {v}
+                <Text key={k} style={{ color: "#721c24", marginTop: 4, fontSize: 13 }}>
+                  <Text style={{ fontWeight: "700" }}>{k}:</Text> {v}
                 </Text>
               ))}
-            </>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            onPress={() => setShowDebug((s) => !s)}
+            style={{
+              paddingVertical: 12,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              backgroundColor: "#e8ecf0",
+              marginBottom: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontWeight: "700", color: "#333" }}>
+              {showDebug ? "Hide technical details" : "Show technical details (token, JSON)"}
+            </Text>
+          </TouchableOpacity>
+
+          {showDebug ? (
+            <View
+              style={{
+                ...card,
+                ...webShadow,
+                backgroundColor: "#fafafa",
+                borderStyle: "dashed",
+              }}
+            >
+              <Text style={{ fontWeight: "700", marginBottom: 8 }}>Session &amp; actions</Text>
+              <Text style={{ fontFamily: mono, fontSize: 11, marginBottom: 8 }}>api_base: {apiBase || "—"}</Text>
+              <Text style={{ fontFamily: mono, fontSize: 11, marginBottom: 12 }}>one-time code: {code}</Text>
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" as any, marginBottom: 12 }}>
+                <TouchableOpacity
+                  onPress={openApp}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    borderRadius: 10,
+                    backgroundColor: "#111",
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>Open app</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={copy}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    borderRadius: 10,
+                    backgroundColor: "#ddd",
+                  }}
+                >
+                  <Text style={{ fontWeight: "700" }}>Copy code</Text>
+                </TouchableOpacity>
+              </View>
+
+              {tokenPayload ? (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontWeight: "600", marginBottom: 4 }}>Token (metadata)</Text>
+                  <Text style={{ fontFamily: mono, fontSize: 11 }}>
+                    type {String(tokenPayload.token_type)} · expires_in {String(tokenPayload.expires_in)} · scope{" "}
+                    {String(tokenPayload.scope)}
+                  </Text>
+                  <Text style={{ fontFamily: mono, fontSize: 11 }}>
+                    access_token: {maskedAccessToken || "—"}
+                  </Text>
+                </View>
+              ) : null}
+
+              {idTokenClaims ? (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontWeight: "600", marginBottom: 4 }}>ID token claims</Text>
+                  <Text style={{ fontFamily: mono, fontSize: 10 }}>{stringifyLimited(idTokenClaims, 6000)}</Text>
+                </View>
+              ) : null}
+
+              <Text style={{ fontWeight: "700", marginBottom: 6 }}>Raw FHIR JSON (truncated)</Text>
+              {patientResource ? (
+                <Text style={{ fontFamily: mono, fontSize: 10, marginBottom: 10 }}>
+                  Patient{"\n"}
+                  {stringifyLimited(patientResource, 8000)}
+                </Text>
+              ) : null}
+              {coverageBundle ? (
+                <Text style={{ fontFamily: mono, fontSize: 10, marginBottom: 10 }}>
+                  Coverage{"\n"}
+                  {stringifyLimited(coverageBundle, 8000)}
+                </Text>
+              ) : null}
+              {encounterBundle ? (
+                <Text style={{ fontFamily: mono, fontSize: 10, marginBottom: 10 }}>
+                  Encounter{"\n"}
+                  {stringifyLimited(encounterBundle, 8000)}
+                </Text>
+              ) : null}
+              {eobBundle ? (
+                <Text style={{ fontFamily: mono, fontSize: 10 }}>
+                  EOB{"\n"}
+                  {stringifyLimited(eobBundle, 8000)}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
 
           {exchangeError ? (
-            <>
-              <View style={{ height: 10 }} />
-              <Text style={{ color: "#a11" }}>Error: {exchangeError}</Text>
-            </>
+            <View style={{ ...card, borderColor: "#f5c6cb", backgroundColor: "#fff5f5" }}>
+              <Text style={{ color: "#721c24", fontWeight: "700" }}>Error</Text>
+              <Text style={{ color: "#721c24", marginTop: 6 }}>{exchangeError}</Text>
+            </View>
           ) : null}
 
           {status ? (
-            <>
-              <View style={{ height: 10 }} />
-              <Text style={{ fontFamily: mono }}>{status}</Text>
-            </>
+            <Text style={{ fontSize: 12, color: "#888", marginTop: 8, fontFamily: mono }}>{status}</Text>
           ) : null}
-        </View>
+        </>
       ) : null}
     </ScrollView>
   );
