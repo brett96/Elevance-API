@@ -1,5 +1,9 @@
-# Smaller uploads; Vercel build only needs the Django app + api entry.
-mobile
+# Smaller uploads for the Django API. Do NOT list `mobile/` itself — a separate Vercel
+# project uses Root Directory `mobile` for Expo web; ignoring `mobile` breaks `npm install`.
+mobile/node_modules
+mobile/android
+mobile/ios
+mobile/.expo
 venv
 .venv
 __pycache__

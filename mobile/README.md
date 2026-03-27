@@ -72,6 +72,18 @@ Then on the phone’s browser you can try `http://192.168.0.108:8000/` — you s
 
 ## OAuth handoff page (web + desktop)
 
+### If the browser shows JSON like `medicare_retention_api` / `Django API gateway is running`
+
+That response is **`GET /` on the Django API**, not the Expo web app. The **Expo** deployment must be a **separate Vercel project** with **Root Directory = `mobile`**, build **`npx expo export -p web`**, output **`dist`**. If `APP_HANDOFF_URL_BASE` points at a hostname that still deploys the API from the repo root, you will never load the React handoff UI—only API JSON.
+
+### Vercel build logs show Python / `requirements.txt` / `builds` warning
+
+If the log says **`Due to builds existing in your configuration file, the Build and Development Settings… will not apply`** and the install step uses **`pip`** / **`requirements.txt`**, Vercel is reading the **repository root** `vercel.json` (Django `@vercel/python` + `builds`), not `mobile/vercel.json`.
+
+**Fix:** In this Vercel project → **Settings → General → Root Directory**, set **`mobile`** (exactly), save, then **Redeploy**. A correct Expo build log should show **`npm install`** and **`npx expo export -p web`**, and output **`dist/`** with static assets—no Python venv.
+
+**If `npm install` fails with `ENOENT ... mobile/package.json`:** the repo root **`.vercelignore`** used to exclude the entire `mobile/` tree (to slim Django uploads). That must not happen when a project’s root is `mobile` — the ignore file now excludes only heavy paths like `mobile/node_modules`, not all of `mobile/`. Commit that change and redeploy.
+
 This repo’s Django `/callback` endpoint can redirect to an **HTTPS handoff page** (works on desktop browsers) that then opens the native app when installed.
 
 - **Backend env**: set `APP_HANDOFF_URL_BASE` to your Expo web **origin** (no path), e.g. `https://your-expo-web-host.vercel.app`. Django redirects to `/?code=...&api_base=...` so Vercel static hosting serves `index.html` (a bare `/handoff` path often 404s without SPA rewrites).
