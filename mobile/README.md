@@ -78,6 +78,13 @@ This repo’s Django `/callback` endpoint can redirect to an **HTTPS handoff pag
 - **Expo web route**: the app detects `/handoff?code=...` and renders a “Sign-in complete” page with:
   - **Open the app** (custom scheme fallback)
   - **Copy code**
+  - token metadata and patient/EOB summary (via API exchange + proxy endpoints)
+
+For web builds hosted separately from the API host, set:
+
+- `EXPO_PUBLIC_API_BASE_URL=https://your-api-host` (optional override)
+
+The backend also appends `api_base=...` to handoff redirects so the page can discover the API host automatically.
 
 ### Run locally (web)
 

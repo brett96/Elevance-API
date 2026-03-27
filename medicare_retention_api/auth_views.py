@@ -219,8 +219,12 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
     # Example: APP_HANDOFF_URL_BASE=https://your-expo-web.vercel.app/handoff
     handoff_base = _env("APP_HANDOFF_URL_BASE")
     if handoff_base:
+        api_base = (_env("PUBLIC_API_BASE_URL") or request.build_absolute_uri("/")).rstrip("/")
         sep = "&" if ("?" in handoff_base) else "?"
-        handoff = f"{handoff_base}{sep}code={urllib.parse.quote(exchange_code)}"
+        handoff = (
+            f"{handoff_base}{sep}code={urllib.parse.quote(exchange_code)}"
+            f"&api_base={urllib.parse.quote(api_base)}"
+        )
         return _http_redirect(handoff)
 
     # Fallback: deep-link directly into the native app.

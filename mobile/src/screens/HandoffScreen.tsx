@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Text, TouchableOpacity, View } from "react-native";
 
 function getQueryParamFromUrl(url: string, key: string): string | null {
@@ -12,14 +12,30 @@ function getQueryParamFromUrl(url: string, key: string): string | null {
 }
 
 export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
+  const sourceUrl = useMemo(() => {
+    if (props.initialUrl) return props.initialUrl;
+    if (Platform.OS === "web" && typeof window !== "undefined") return window.location.href;
+    return "";
+  }, [props.initialUrl]);
+
   const code = useMemo(() => {
     if (props.code) return props.code;
-    if (props.initialUrl) return getQueryParamFromUrl(props.initialUrl, "code");
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      return getQueryParamFromUrl(window.location.href, "code");
-    }
+    if (sourceUrl) return getQueryParamFromUrl(sourceUrl, "code");
     return null;
-  }, [props.code, props.initialUrl]);
+  }, [props.code, sourceUrl]);
+
+  const apiBaseFromUrl = useMemo(() => {
+    if (!sourceUrl) return null;
+    return getQueryParamFromUrl(sourceUrl, "api_base");
+  }, [sourceUrl]);
+
+  const apiBase = useMemo(() => {
+    const envBase = (process.env.EXPO_PUBLIC_API_BASE_URL || "").trim();
+    const hinted = (apiBaseFromUrl || "").trim();
+    if (envBase) return envBase.replace(/\/+$/, "");
+    if (hinted) return hinted.replace(/\/+$/, "");
+    return "";
+  }, [apiBaseFromUrl]);
 
   const deepLink = useMemo(() => {
     if (!code) return null;
@@ -27,6 +43,73 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
   }, [code]);
 
   const [status, setStatus] = useState<string>("");
+  const [exchangeBusy, setExchangeBusy] = useState(false);
+  const [exchangeError, setExchangeError] = useState<string>("");
+  const [tokenPayload, setTokenPayload] = useState<any>(null);
+  const [eobInfo, setEobInfo] = useState<any>(null);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!code || !apiBase) return;
+      setExchangeBusy(true);
+      setExchangeError("");
+      setStatus("Exchanging one-time code for token...");
+      try {
+        const tokenResp = await fetch(`${apiBase}/api/auth/exchange/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const tokenJson = await tokenResp.json();
+        if (!tokenResp.ok) {
+          throw new Error(tokenJson?.error || `exchange_failed_${tokenResp.status}`);
+        }
+        setTokenPayload(tokenJson);
+        setStatus("Token exchange complete.");
+
+        const patientId =
+          (tokenJson?.patient as string | undefined) ||
+          (tokenJson?.patient_id as string | undefined) ||
+          "";
+        if (!patientId) return;
+
+        setStatus("Fetching patient EOB summary...");
+        const eobResp = await fetch(
+          `${apiBase}/api/fhir/eob/?patient_id=${encodeURIComponent(patientId)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${tokenJson.access_token}`,
+              Accept: "application/json",
+            },
+          }
+        );
+        const eobJson = await eobResp.json();
+        if (!eobResp.ok) {
+          throw new Error(eobJson?.error || `eob_failed_${eobResp.status}`);
+        }
+        setEobInfo({
+          patientId,
+          resourceType: eobJson?.resourceType,
+          total: typeof eobJson?.total === "number" ? eobJson.total : null,
+          entryCount: Array.isArray(eobJson?.entry) ? eobJson.entry.length : 0,
+        });
+        setStatus("Loaded patient summary.");
+      } catch (e: any) {
+        setExchangeError(e?.message ?? String(e));
+        setStatus("Unable to load token/patient details.");
+      } finally {
+        setExchangeBusy(false);
+      }
+    };
+    void run();
+  }, [apiBase, code]);
+
+  const maskedAccessToken = useMemo(() => {
+    const t = tokenPayload?.access_token;
+    if (!t || typeof t !== "string") return null;
+    if (t.length <= 18) return t;
+    return `${t.slice(0, 10)}...${t.slice(-8)}`;
+  }, [tokenPayload]);
 
   const copy = useCallback(async () => {
     if (!code) return;
@@ -57,7 +140,7 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
       <View style={{ height: 10 }} />
       <Text>
         {code
-          ? "You can continue in the app."
+          ? "OAuth callback complete. Reviewing token and patient information."
           : "Missing handoff code. Re-run the OAuth flow to reach this page with ?code=..."}
       </Text>
 
@@ -114,6 +197,52 @@ export function HandoffScreen(props: { initialUrl?: string; code?: string }) {
                   {deepLink}
                 </Text>
               </Text>
+            </>
+          ) : null}
+
+          <View style={{ height: 14 }} />
+          <Text style={{ fontWeight: "700" }}>Backend</Text>
+          <View style={{ height: 6 }} />
+          <Text style={{ fontFamily: Platform.OS === "web" ? "monospace" : "Courier" }}>
+            {apiBase || "(missing api_base; set EXPO_PUBLIC_API_BASE_URL or pass ?api_base=...)"}
+          </Text>
+
+          <View style={{ height: 14 }} />
+          <Text style={{ fontWeight: "700" }}>Token details</Text>
+          <View style={{ height: 6 }} />
+          {exchangeBusy ? <Text>Loading...</Text> : null}
+          {tokenPayload ? (
+            <View>
+              <Text>
+                token_type: {String(tokenPayload.token_type || "(missing)")} | expires_in:{" "}
+                {String(tokenPayload.expires_in ?? "(missing)")}
+              </Text>
+              <Text>scope: {String(tokenPayload.scope || "(missing)")}</Text>
+              <Text>patient: {String(tokenPayload.patient || tokenPayload.patient_id || "(none)")}</Text>
+              <Text style={{ fontFamily: Platform.OS === "web" ? "monospace" : "Courier" }}>
+                access_token: {maskedAccessToken || "(missing)"}
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={{ height: 14 }} />
+          <Text style={{ fontWeight: "700" }}>Patient/EOB summary</Text>
+          <View style={{ height: 6 }} />
+          {eobInfo ? (
+            <View>
+              <Text>patient_id: {String(eobInfo.patientId)}</Text>
+              <Text>resource_type: {String(eobInfo.resourceType || "(unknown)")}</Text>
+              <Text>bundle_total: {String(eobInfo.total ?? "(unknown)")}</Text>
+              <Text>entries_returned: {String(eobInfo.entryCount ?? 0)}</Text>
+            </View>
+          ) : (
+            <Text>(No patient summary yet.)</Text>
+          )}
+
+          {exchangeError ? (
+            <>
+              <View style={{ height: 10 }} />
+              <Text style={{ color: "#a11" }}>Error: {exchangeError}</Text>
             </>
           ) : null}
 
