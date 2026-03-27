@@ -215,6 +215,15 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
         expires_at=now + timedelta(minutes=5),
     )
 
+    # Prefer an HTTPS handoff URL for cross-platform (desktop browsers cannot open custom schemes).
+    # Example: APP_HANDOFF_URL_BASE=https://your-expo-web.vercel.app/handoff
+    handoff_base = _env("APP_HANDOFF_URL_BASE")
+    if handoff_base:
+        sep = "&" if ("?" in handoff_base) else "?"
+        handoff = f"{handoff_base}{sep}code={urllib.parse.quote(exchange_code)}"
+        return _http_redirect(handoff)
+
+    # Fallback: deep-link directly into the native app.
     deeplink_base = _require_env("APP_DEEPLINK_CALLBACK_BASE")
     sep = "&" if ("?" in deeplink_base) else "?"
     target = f"{deeplink_base}{sep}code={urllib.parse.quote(exchange_code)}"

@@ -68,7 +68,7 @@ flowchart LR
 
 1. **Mobile** opens **`GET /authorize/`** on your Django host (or deep-links the user through the browser to that URL).
 2. Django stores **PKCE** in Postgres (`PkceSession`, keyed by `state`) and redirects to Elevance’s authorize URL with `aud` = FHIR base URL and SMART scopes.
-3. Elevance redirects to **`/callback/`** with `code` + `state`. Django loads the PKCE row, exchanges the code for tokens, encrypts the token payload, stores a **one-time exchange code**, and redirects to **`APP_DEEPLINK_CALLBACK_BASE?code=...`**.
+3. Elevance redirects to **`/callback/`** with `code` + `state`. Django loads the PKCE row, exchanges the code for tokens, encrypts the token payload, stores a **one-time exchange code**, and redirects to **`APP_HANDOFF_URL_BASE?code=...`** (recommended) or falls back to **`APP_DEEPLINK_CALLBACK_BASE?code=...`**.
 4. The app **`POST /api/auth/exchange/`** with `{ "code": "..." }` and receives the token JSON (then keeps tokens in secure device storage—your app’s responsibility).
 5. For FHIR, the app calls **`GET /api/fhir/eob/?patient_id=...`** with **`Authorization: Bearer <access_token>`**; Django proxies to Elevance (short timeouts, no background work).
 
@@ -105,7 +105,8 @@ flowchart LR
 
 **App handoff**
 
-- `APP_DEEPLINK_CALLBACK_BASE` — e.g. `medicare-retention://oauth/callback` (scheme from `mobile/app.json`)
+- `APP_HANDOFF_URL_BASE` — **recommended** HTTPS handoff page base, e.g. `https://your-expo-web-host/handoff` (backend redirects here with `?code=...` so desktop browsers work)
+- `APP_DEEPLINK_CALLBACK_BASE` — native fallback, e.g. `medicare-retention://oauth/callback` (custom scheme; desktop browsers cannot open this). Used only if `APP_HANDOFF_URL_BASE` is unset.
 
 **Token encryption at rest (exchange table)**
 
@@ -159,7 +160,7 @@ Allow **Python** through Windows Firewall if prompted. (This is separate from **
 
 ### Vercel
 
-- `vercel.json` routes traffic to `api/index.py`, which exposes the Django WSGI app as `app`.
+- `vercel.json` uses `builds` (`@vercel/python`) + `routes` to `api/index.py` — do not add a `functions` block in the same file (Vercel forbids mixing both).
 - **Deploy checklist:** see **[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md)** — env vars, Postgres + `migrate` on build, Elevance redirect URI, and troubleshooting.
 - **Template:** [`.env.example`](.env.example) lists variable names (no secrets).
 - Keep handlers **fast**: outbound HTTP uses short timeouts; no long-running tasks.
