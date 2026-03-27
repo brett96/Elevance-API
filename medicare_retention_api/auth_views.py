@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import os
 import secrets
@@ -92,6 +93,24 @@ def _http_redirect(location: str) -> HttpResponse:
     r = HttpResponse(status=302)
     r["Location"] = location
     return r
+
+
+def _html_handoff_to_app(deeplink: str) -> HttpResponse:
+    """
+    Many mobile in-app browsers and OAuth web views do not follow 302 Location: custom-scheme.
+    Return a small HTML page that navigates via JS and offers a tap-to-open link.
+    """
+    safe_href = html.escape(deeplink, quote=True)
+    js_url = json.dumps(deeplink)
+    body = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign-in complete</title></head><body>
+<p>Redirecting to the app…</p>
+<p>If nothing happens, <a href="{safe_href}">open the app</a>.</p>
+<script>window.location.replace({js_url});</script>
+</body></html>"""
+    return HttpResponse(body, content_type="text/html; charset=utf-8")
 
 
 @require_GET
@@ -199,7 +218,9 @@ def elevance_callback(request: HttpRequest) -> HttpResponse:
     deeplink_base = _require_env("APP_DEEPLINK_CALLBACK_BASE")
     sep = "&" if ("?" in deeplink_base) else "?"
     target = f"{deeplink_base}{sep}code={urllib.parse.quote(exchange_code)}"
-    return _http_redirect(target)
+    if target.startswith("http://") or target.startswith("https://"):
+        return _http_redirect(target)
+    return _html_handoff_to_app(target)
 
 
 @csrf_exempt
