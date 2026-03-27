@@ -1,0 +1,11 @@
+# Smaller uploads; Vercel build only needs the Django app + api entry.
+mobile
+venv
+.venv
+__pycache__
+*.pyc
+db.sqlite3
+.git
+.env
+scripts
+apiTest.py

@@ -9,9 +9,10 @@ like api/index.py. We expose the Django WSGI application as `app`.
 
 import os
 
-from medicare_retention_api.wsgi import app as django_app
-
+# Must be set before importing Django/WSGI (Vercel and local).
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "medicare_retention_api.settings")
+
+from medicare_retention_api.wsgi import app as django_app
 
 app = django_app
 

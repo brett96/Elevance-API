@@ -160,6 +160,8 @@ Allow **Python** through Windows Firewall if prompted. (This is separate from **
 ### Vercel
 
 - `vercel.json` routes traffic to `api/index.py`, which exposes the Django WSGI app as `app`.
+- **Deploy checklist:** see **[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md)** — env vars, Postgres + `migrate` on build, Elevance redirect URI, and troubleshooting.
+- **Template:** [`.env.example`](.env.example) lists variable names (no secrets).
 - Keep handlers **fast**: outbound HTTP uses short timeouts; no long-running tasks.
 
 ---

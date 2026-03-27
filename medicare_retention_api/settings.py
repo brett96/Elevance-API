@@ -8,10 +8,12 @@ It is designed for Vercel-style serverless deployment (short timeouts, stateless
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import List
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,6 +34,18 @@ def _env(name: str, default: str | None = None) -> str | None:
     return v.strip()
 
 
+def _manage_py_subcommand() -> str:
+    """First argument after manage.py (e.g. collectstatic, migrate)."""
+    if len(sys.argv) < 2:
+        return ""
+    if Path(sys.argv[0]).name == "manage.py":
+        return sys.argv[1]
+    return ""
+
+
+# Vercel sets VERCEL=1 during build and serverless runtime.
+IS_VERCEL = _env("VERCEL") == "1"
+
 SECRET_KEY = _env("DJANGO_SECRET_KEY", "dev-insecure-change-me")
 DEBUG = (_env("DJANGO_DEBUG", "0") == "1")
 
@@ -42,6 +56,11 @@ if allowed_hosts_raw:
 else:
     # Vercel (and local) friendly defaults; override in production via env.
     ALLOWED_HOSTS = ["localhost", "127.0.0.1", ".vercel.app"]
+
+# Optional: exact preview/production hostname (no scheme), e.g. my-app-xxx.vercel.app
+_vercel_url = _env("VERCEL_URL")
+if _vercel_url and _vercel_url not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_vercel_url)
 
 
 INSTALLED_APPS = [
@@ -91,9 +110,21 @@ WSGI_APPLICATION = "medicare_retention_api.wsgi.application"
 DATABASE_URL = _env("DATABASE_URL")
 # Local Windows/Mac dev: set DJANGO_USE_SQLITE=1 to use SQLite even if DATABASE_URL is set
 # (e.g. you copied production env but Postgres is not running on localhost).
-USE_SQLITE_LOCAL = _env("DJANGO_USE_SQLITE", "0") == "1"
+# On Vercel, always use Postgres — serverless filesystem is not suitable for SQLite.
+USE_SQLITE_LOCAL = (not IS_VERCEL) and (_env("DJANGO_USE_SQLITE", "0") == "1")
 
-if DATABASE_URL and not USE_SQLITE_LOCAL:
+# On Vercel, collectstatic does not need a real DB; allow build to run before DATABASE_URL is set.
+_sub = _manage_py_subcommand()
+_collectstatic_only = IS_VERCEL and (not DATABASE_URL) and _sub == "collectstatic"
+
+if _collectstatic_only:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+elif DATABASE_URL and not USE_SQLITE_LOCAL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
@@ -101,6 +132,11 @@ if DATABASE_URL and not USE_SQLITE_LOCAL:
             ssl_require=_env("DB_SSL_REQUIRE", "1") == "1",
         )
     }
+elif IS_VERCEL and not DATABASE_URL:
+    raise ImproperlyConfigured(
+        "DATABASE_URL must be set in the Vercel project environment for runtime and for "
+        "`python manage.py migrate` during build. Use a pooled Postgres URL (e.g. Supabase / Neon)."
+    )
 else:
     # Local fallback when DATABASE_URL is unset, or when DJANGO_USE_SQLITE=1.
     DATABASES = {
@@ -160,4 +196,9 @@ CORS_ALLOW_HEADERS = list(
         "x-requested-with",
     }
 )
+
+# --- Vercel / reverse proxy (TLS terminates at edge) ---
+if IS_VERCEL:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
 
