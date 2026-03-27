@@ -43,8 +43,24 @@ def _manage_py_subcommand() -> str:
     return ""
 
 
-# Vercel sets VERCEL=1 during build and serverless runtime.
-IS_VERCEL = _env("VERCEL") == "1"
+def _is_vercel_runtime() -> bool:
+    """
+    Detect Vercel build and serverless invocations.
+
+    The Python runtime does not always set VERCEL=1; VERCEL_ENV and VERCEL_URL are
+    reliably present. Without this, Django falls back to file-based SQLite and hits
+    sqlite3.OperationalError: unable to open database file on the read-only /var/task FS.
+    """
+    if _env("VERCEL") == "1":
+        return True
+    if _env("VERCEL_ENV"):
+        return True
+    if _env("VERCEL_URL"):
+        return True
+    return False
+
+
+IS_VERCEL = _is_vercel_runtime()
 
 SECRET_KEY = _env("DJANGO_SECRET_KEY", "dev-insecure-change-me")
 DEBUG = (_env("DJANGO_DEBUG", "0") == "1")
